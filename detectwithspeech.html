@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HELMET FIT — AI Head Size Analyzer</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@300;400;500&family=Space+Grotesk:wght@300;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --accent: #e8ff00;
+    --accent2: #ff4d00;
+    --text: #f0f0e8;
+    --muted: #555566;
+    --border: #222230;
+    --success: #44ff88;
+    --header-h: clamp(68px, 11vh, 88px);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    min-height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    height: var(--header-h);
+    padding: 20px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg);
+    z-index: 10;
+  }
+
+  .logo { font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 0.15em; color: var(--accent); }
+  .logo span { color: var(--accent2); }
+
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 16px 20px;
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+    min-height: 0;
+  }
+
+  /* START SCREEN */
+  .start-screen {
+    text-align: center;
+    margin-top: 10vh;
+    animation: fadeUp 0.8s ease both;
+  }
+  
+  .start-screen h1 { font-family: 'Bebas Neue', sans-serif; font-size: clamp(3rem, 8vw, 5rem); line-height: 0.95; }
+  .start-screen h1 em { color: var(--accent); font-style: normal; }
+  .start-screen p { margin: 20px 0 40px; color: var(--muted); font-size: 0.9rem; letter-spacing: 0.1em; }
+
+  .btn-start {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.5rem;
+    letter-spacing: 0.15em;
+    padding: 16px 40px;
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: transform 0.2s;
+  }
+  .btn-start:hover { transform: scale(1.05); }
+
+  /* SCANNER UI */
+  .scanner-container {
+    display: none;
+    width: min(100%, calc((100dvh - var(--header-h) - 40px) * 0.75));
+    max-width: 600px;
+    max-height: calc(100dvh - var(--header-h) - 40px);
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 2px solid var(--border);
+    background: #000;
+    aspect-ratio: 3/4;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+  }
+
+  .scanner-container.active { display: block; animation: fadeUp 0.5s ease both; }
+
+  video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: scaleX(-1); pointer-events: none; }
+
+  /* OVERLAYS */
+  .ui-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 24px;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  .status-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .step-indicator {
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(4px);
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    letter-spacing: 0.1em;
+    border: 1px solid var(--border);
+    text-transform: uppercase;
+  }
+
+  .step-indicator span { color: var(--accent); font-weight: bold; }
+
+  .instruction-text {
+    text-align: center;
+    background: rgba(0,0,0,0.8);
+    color: #fff;
+    padding: 16px;
+    border-radius: 8px;
+    font-size: 1.1rem;
+    font-weight: 500;
+    border: 1px solid var(--accent);
+    margin-bottom: 20px;
+    transition: all 0.3s;
+  }
+
+  .instruction-text.success { border-color: var(--success); color: var(--success); }
+
+  /* GUIDE OVAL */
+  .face-guide {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60%;
+    aspect-ratio: 2/3;
+    border: 2px dashed rgba(255,255,255,0.3);
+    border-radius: 50%;
+    pointer-events: none;
+    transition: all 0.3s;
+  }
+  .face-guide.good { border-color: var(--success); border-style: solid; box-shadow: 0 0 20px rgba(68,255,136,0.3); }
+
+  /* PROGRESS RING */
+  .progress-container { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 70%; aspect-ratio: 2/3; pointer-events: none; }
+  .progress-ring { width: 100%; height: 100%; border-radius: 50%; border: 6px solid transparent; transition: border-color 0.1s; }
+
+  /* RESULT UI */
+  .result-panel {
+    display: none;
+    width: 100%;
+    max-width: 600px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 40px;
+    text-align: center;
+    animation: fadeUp 0.6s ease both;
+  }
+  .result-panel.active { display: block; }
+
+  .size-badge { font-family: 'Bebas Neue', sans-serif; font-size: 7rem; line-height: 1; color: var(--accent); }
+  .circ-value { margin-top: 10px; font-size: 1.2rem; color: var(--text); }
+  
+  .details-box { background: #0a0a0f; border: 1px solid var(--border); padding: 20px; margin-top: 20px; border-radius: 4px; text-align: left; font-size: 0.85rem; }
+  .details-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .details-row:last-child { border-bottom: none; }
+  .details-row span:last-child { color: var(--accent); }
+
+  .reset-btn { margin-top: 30px; background: transparent; color: var(--muted); border: 1px solid var(--border); padding: 10px 20px; cursor: pointer; border-radius: 4px; font-family: 'DM Mono'; }
+  .reset-btn:hover { color: #fff; border-color: #fff; }
+
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">HELMET<span>FIT</span></div>
+</header>
+
+<main>
+  <div class="start-screen" id="startScreen">
+    <h1>FIND YOUR <em>PERFECT</em><br>HELMET SIZE</h1>
+    <p>We'll guide you through a 3-step live video scan.<br>Ensure your sound is on for voice instructions.</p>
+    <button class="btn-start" onclick="startScanner()">START LIVE SCAN</button>
+  </div>
+
+  <div class="scanner-container" id="scannerContainer">
+    <video id="videoEl" autoplay playsinline muted></video>
+    <canvas id="canvasEl"></canvas>
+    
+    <div class="face-guide" id="faceGuide"></div>
+    <div class="progress-container"><div class="progress-ring" id="progressRing"></div></div>
+
+    <div class="ui-overlay">
+      <div class="status-bar">
+        <div class="step-indicator">Step: <span id="currentStepText">FRONT</span> / 3</div>
+        <div id="debugText" style="font-size:0.6rem; color:var(--muted);"></div>
+      </div>
+      <div class="instruction-text" id="instructionText">Loading camera...</div>
+    </div>
+  </div>
+
+  <div class="result-panel" id="resultPanel">
+    <h2 style="font-family:'Bebas Neue'; font-size: 2rem; letter-spacing:0.1em; color:var(--muted);">YOUR RECOMMENDED SIZE</h2>
+    <div class="size-badge" id="finalSize">M</div>
+    <div class="circ-value">Circumference: <strong id="finalCircum">57.2 cm</strong></div>
+    
+    <div class="details-box" id="detailsBox"></div>
+    <button class="reset-btn" onclick="location.reload()">↺ Start Over</button>
+  </div>
+</main>
+
+<script>
+// --- STATE & CONSTANTS ---
+const state = {
+  step: 'front', // 'front' -> 'left' -> 'right' -> 'done'
+  landmarks: { front: null, left: null, right: null },
+  holdCounter: 0,
+  maxHold: 15, // Frames required to hold still (approx 1 second)
+  faceMesh: null,
+  stream: null
+};
+
+// Speech Synthesis Variables
+let lastSpeechTime = 0;
+let lastSpokenText = "";
+
+// --- SPEECH FUNCTION ---
+function speak(text) {
+  // Don't spam the user. Wait 2.5 seconds between instructions unless the instruction changes drastically
+  if (Date.now() - lastSpeechTime < 2500 && lastSpokenText === text) return;
+  if (window.speechSynthesis.speaking) window.speechSynthesis.cancel(); // Interrupt old speech
+  
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 1.0;
+  utterance.pitch = 1.0;
+  window.speechSynthesis.speak(utterance);
+  
+  lastSpeechTime = Date.now();
+  lastSpokenText = text;
+}
+
+function updateUI(instruction, isGood) {
+  const el = document.getElementById('instructionText');
+  const guide = document.getElementById('faceGuide');
+  const ring = document.getElementById('progressRing');
+  
+  if (el.innerText !== instruction) {
+    el.innerText = instruction;
+    if (instruction !== "Hold still...") speak(instruction);
+  }
+
+  if (isGood) {
+    el.classList.add('success');
+    guide.classList.add('good');
+    // Visual progress ring
+    const progress = (state.holdCounter / state.maxHold) * 100;
+    ring.style.borderTopColor = 'var(--success)';
+    if(progress > 25) ring.style.borderRightColor = 'var(--success)';
+    if(progress > 50) ring.style.borderBottomColor = 'var(--success)';
+    if(progress > 75) ring.style.borderLeftColor = 'var(--success)';
+  } else {
+    el.classList.remove('success');
+    guide.classList.remove('good');
+    ring.style.borderColor = 'transparent';
+  }
+}
+
+// --- MEDIAPIPE INITIALIZATION ---
+async function startScanner() {
+  document.getElementById('startScreen').style.display = 'none';
+  document.getElementById('scannerContainer').classList.add('active');
+  speak("Please position your face in the oval.");
+
+  state.faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
+  state.faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
+  state.faceMesh.onResults(onFaceMeshResults);
+
+  try {
+    state.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 480, height: 640 } });
+    const video = document.getElementById('videoEl');
+    video.srcObject = state.stream;
+    
+    // Process frames continuously
+    const processFrame = async () => {
+      if (video.readyState >= 2 && state.step !== 'done') {
+        await state.faceMesh.send({ image: video });
+      }
+      if (state.step !== 'done') requestAnimationFrame(processFrame);
+    };
+    processFrame();
+  } catch (err) {
+    alert("Camera access denied or failed.");
+  }
+}
+
+// --- EVALUATION HEURISTICS ---
+function onFaceMeshResults(results) {
+  if (state.step === 'done') return;
+
+  const canvas = document.getElementById('canvasEl');
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+    updateUI("No face detected", false);
+    state.holdCounter = 0;
+    return;
+  }
+
+  const lms = results.multiFaceLandmarks[0];
+  
+  // Extract key normalized coordinates
+  const top = lms[10];
+  const chin = lms[152];
+  const nose = lms[1];
+  const lCheek = lms[454];
+  const rCheek = lms[234];
+
+  // 1. Check Distance (Face Box Height vs Screen)
+  const faceHeight = Math.abs(top.y - chin.y);
+  if (faceHeight < 0.45) { updateUI("Move closer to the camera", false); state.holdCounter = 0; return; }
+  if (faceHeight > 0.70) { updateUI("Move slightly further back", false); state.holdCounter = 0; return; }
+
+  // 2. Check Centering
+  const faceCenterX = (lCheek.x + rCheek.x) / 2;
+  const faceCenterY = (top.y + chin.y) / 2;
+  if (faceCenterX < 0.40 || faceCenterX > 0.60 || faceCenterY < 0.35 || faceCenterY > 0.65) {
+    updateUI("Center your face in the oval", false); 
+    state.holdCounter = 0; 
+    return;
+  }
+
+  // 3. Check Angle (Yaw) based on current step
+  const faceWidth = Math.abs(lCheek.x - rCheek.x);
+  // Nose position relative to face width (0 = far right edge, 1 = far left edge)
+  const noseOffset = (nose.x - rCheek.x) / faceWidth; 
+  
+  let isPoseGood = false;
+
+  if (state.step === 'front') {
+    if (noseOffset > 0.40 && noseOffset < 0.60) {
+      isPoseGood = true;
+      updateUI("Hold still...", true);
+    } else {
+      updateUI("Look straight at the camera", false);
+    }
+  } 
+  else if (state.step === 'left') {
+    // Looking left means nose moves towards the right side of the image (mirrored)
+    if (noseOffset > 0.75) {
+      isPoseGood = true;
+      updateUI("Hold still...", true);
+    } else {
+      updateUI("Turn your head slowly to the LEFT", false);
+    }
+  }
+  else if (state.step === 'right') {
+    // Looking right means nose moves towards the left side of the image
+    if (noseOffset < 0.25) {
+      isPoseGood = true;
+      updateUI("Hold still...", true);
+    } else {
+      updateUI("Turn your head slowly to the RIGHT", false);
+    }
+  }
+
+  // --- STATE ADVANCEMENT ---
+  if (isPoseGood) {
+    state.holdCounter++;
+    if (state.holdCounter >= state.maxHold) {
+      // Capture successful
+      speak("Captured.");
+      state.landmarks[state.step] = [...lms];
+      state.holdCounter = 0;
+
+      // Move to next state
+      if (state.step === 'front') {
+        state.step = 'left';
+        document.getElementById('currentStepText').innerText = "LEFT";
+        speak("Great. Now turn your head to the left.");
+      } else if (state.step === 'left') {
+        state.step = 'right';
+        document.getElementById('currentStepText').innerText = "RIGHT";
+        speak("Got it. Now turn your head to the right.");
+      } else if (state.step === 'right') {
+        state.step = 'done';
+        speak("All done. Analyzing your helmet size.");
+        finalizeAnalysis();
+      }
+    }
+  } else {
+    state.holdCounter = 0;
+  }
+}
+
+// --- ANALYSIS LOGIC (Using your original math heuristics) ---
+function finalizeAnalysis() {
+  if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+  document.getElementById('scannerContainer').style.display = 'none';
+  
+  const F = state.landmarks.front;
+  const L = state.landmarks.left;  
+  const R = state.landmarks.right; 
+
+  const canvas = document.getElementById('canvasEl');
+  const w = canvas.width;
+  const h = canvas.height;
+
+  const pPx = (lms, idx) => ({ x: lms[idx].x * w, y: lms[idx].y * h });
+  const dPx = (a, b) => Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
+
+  // 1. FRONT SCALE (Anchor: 6.3cm Average IPD)
+  const ipdPx = dPx(pPx(F, 468), pPx(F, 473));
+  const cmPerPixel = 6.3 / ipdPx;
+
+  // 2. MEASURE WIDTH (Front Frame)
+  const faceWidthPx = dPx(pPx(F, 127), pPx(F, 356));
+  const rawFaceWidthCm = faceWidthPx * cmPerPixel;
+  
+  // PROPORTIONAL BUFFER: The full skull is ~15% wider than the visible temporal points.
+  let headWidthCm = rawFaceWidthCm * 1.15; 
+
+  // 3. MEASURE DEPTH (Side Frames, Normalized)
+  const frontHeightPx = dPx(pPx(F, 10), pPx(F, 152));
+
+  // LEFT PROFILE
+  const leftSideHeightPx = dPx(pPx(L, 10), pPx(L, 152));
+  const leftDepthPx = Math.abs(pPx(L, 1).x - pPx(L, 127).x); 
+  const normalizedLeftDepthPx = leftDepthPx * (frontHeightPx / leftSideHeightPx);
+
+  // RIGHT PROFILE
+  const rightSideHeightPx = dPx(pPx(R, 10), pPx(R, 152));
+  const rightDepthPx = Math.abs(pPx(R, 1).x - pPx(R, 356).x); 
+  const normalizedRightDepthPx = rightDepthPx * (frontHeightPx / rightSideHeightPx);
+
+  const avgDepthPx = (normalizedLeftDepthPx + normalizedRightDepthPx) / 2;
+  const rawFaceDepthCm = avgDepthPx * cmPerPixel;
+  
+  // PROPORTIONAL BUFFER: The full skull is ~93% deeper than the distance from the nose to the ear.
+  let headDepthCm = rawFaceDepthCm * 1.93; 
+
+  // 4. CIRCUMFERENCE (Ramanujan Formula)
+  const a = headWidthCm / 2;
+  const b = headDepthCm / 2;
+  let circumCm = Math.PI * (3*(a+b) - Math.sqrt((3*a+b)*(a+3*b)));
+  
+  // 5. HELMET SIZE MAPPING
+  let size = 'XXL';
+  if (circumCm < 53) size = 'XS';
+  else if (circumCm < 55) size = 'S';
+  else if (circumCm < 57) size = 'M';
+  else if (circumCm < 59) size = 'L';
+  else if (circumCm < 61) size = 'XL';
+
+  // Render Results
+  document.getElementById('finalSize').innerText = size;
+  document.getElementById('finalCircum').innerText = `${circumCm.toFixed(1)} cm`;
+  
+  const details = document.getElementById('detailsBox');
+  details.innerHTML = `
+    <div class="details-row"><span>Head Width Est.</span><span>${headWidthCm.toFixed(1)} cm</span></div>
+    <div class="details-row"><span>Head Depth Est.</span><span>${headDepthCm.toFixed(1)} cm</span></div>
+    <div class="details-row"><span>Raw Face Width</span><span>${rawFaceWidthCm.toFixed(1)} cm</span></div>
+    <div class="details-row"><span>Raw Face Depth</span><span>${rawFaceDepthCm.toFixed(1)} cm</span></div>
+  `;
+
+  document.getElementById('resultPanel').classList.add('active');
+  speak(`Your estimated helmet size is ${size}, with a circumference of ${circumCm.toFixed(1)} centimeters.`);
+}
+</script>
+</body>
+</html>
