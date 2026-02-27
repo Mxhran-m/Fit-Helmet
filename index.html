@@ -230,7 +230,7 @@
   <div class="result-panel" id="resultPanel">
     <h2 style="font-family:'Bebas Neue'; font-size: 2rem; letter-spacing:0.1em; color:var(--muted);">YOUR RECOMMENDED SIZE</h2>
     <div class="size-badge" id="finalSize">M</div>
-    <div class="circ-value">Circumference: <strong id="finalCircum">57.2 cm</strong></div>
+    <!-- <div class="circ-value">Circumference: <strong id="finalCircum">57.2 cm</strong></div> -->
     
     <div class="details-box" id="detailsBox"></div>
     <button class="reset-btn" onclick="location.reload()">↺ Start Over</button>
@@ -443,59 +443,180 @@ function finalizeAnalysis() {
   const ipdPx = dPx(pPx(F, 468), pPx(F, 473));
   const cmPerPixel = 6.3 / ipdPx;
 
-  // 2. MEASURE WIDTH (Front Frame)
-  const faceWidthPx = dPx(pPx(F, 127), pPx(F, 356));
-  const rawFaceWidthCm = faceWidthPx * cmPerPixel;
+  // 2. MEASURE WIDTH (Anchor: Outer corners of the eyes)
+  const biocularWidthPx = dPx(pPx(F, 33), pPx(F, 263));
+  const rawEyeWidthCm = biocularWidthPx * cmPerPixel;
   
-  // PROPORTIONAL BUFFER: The full skull is ~15% wider than the visible temporal points.
-  let headWidthCm = rawFaceWidthCm * 1.15; 
+  // CALIBRATED ADDITIVE BUFFER: Scaled down by 0.9 cm based on physical testing
+  let headWidthCm = rawEyeWidthCm + 5.6; 
 
-  // 3. MEASURE DEPTH (Side Frames, Normalized)
-  const frontHeightPx = dPx(pPx(F, 10), pPx(F, 152));
+  // 3. MEASURE DEPTH (Anchor: Nose tip to Eye corner, relying on UI Oval for distance control)
+  const leftDepthPx = Math.abs(pPx(L, 1).x - pPx(L, 33).x); 
+  const rightDepthPx = Math.abs(pPx(R, 1).x - pPx(R, 263).x); 
 
-  // LEFT PROFILE
-  const leftSideHeightPx = dPx(pPx(L, 10), pPx(L, 152));
-  const leftDepthPx = Math.abs(pPx(L, 1).x - pPx(L, 127).x); 
-  const normalizedLeftDepthPx = leftDepthPx * (frontHeightPx / leftSideHeightPx);
-
-  // RIGHT PROFILE
-  const rightSideHeightPx = dPx(pPx(R, 10), pPx(R, 152));
-  const rightDepthPx = Math.abs(pPx(R, 1).x - pPx(R, 356).x); 
-  const normalizedRightDepthPx = rightDepthPx * (frontHeightPx / rightSideHeightPx);
-
-  const avgDepthPx = (normalizedLeftDepthPx + normalizedRightDepthPx) / 2;
-  const rawFaceDepthCm = avgDepthPx * cmPerPixel;
+  const avgEyeDepthPx = (leftDepthPx + rightDepthPx) / 2;
+  const rawEyeDepthCm = avgEyeDepthPx * cmPerPixel;
   
-  // PROPORTIONAL BUFFER: The full skull is ~93% deeper than the distance from the nose to the ear.
-  let headDepthCm = rawFaceDepthCm * 1.93; 
+  // CALIBRATED ADDITIVE BUFFER: Scaled down by 1.2 cm based on physical testing
+  let headDepthCm = rawEyeDepthCm + 13.8; 
+
+  // Safely clamp physical extremes
+  headWidthCm = Math.max(13.5, Math.min(18.0, headWidthCm));
+  headDepthCm = Math.max(17.0, Math.min(22.0, headDepthCm));
 
   // 4. CIRCUMFERENCE (Ramanujan Formula)
   const a = headWidthCm / 2;
   const b = headDepthCm / 2;
   let circumCm = Math.PI * (3*(a+b) - Math.sqrt((3*a+b)*(a+3*b)));
   
-  // 5. HELMET SIZE MAPPING
-  let size = 'XXL';
-  if (circumCm < 53) size = 'XS';
-  else if (circumCm < 55) size = 'S';
-  else if (circumCm < 57) size = 'M';
-  else if (circumCm < 59) size = 'L';
-  else if (circumCm < 61) size = 'XL';
+  // 5. STRICT HELMET SIZE MAPPING (Handles decimal overlaps)
+  let size = 'Out of Range';
+  if (circumCm < 54.5) size = 'XS';
+  else if (circumCm >= 54.5 && circumCm < 56.5) size = 'S';
+  else if (circumCm >= 56.5 && circumCm < 58.5) size = 'M';
+  else if (circumCm >= 58.5 && circumCm < 60.5) size = 'L';
+  else if (circumCm >= 60.5 && circumCm < 61.5) size = 'XL';
+  else if (circumCm >= 61.5) size = 'XXL';
 
   // Render Results
   document.getElementById('finalSize').innerText = size;
-  document.getElementById('finalCircum').innerText = `${circumCm.toFixed(1)} cm`;
+  // document.getElementById('finalCircum').innerText = `${circumCm.toFixed(1)} cm`;
   
   const details = document.getElementById('detailsBox');
   details.innerHTML = `
-    <div class="details-row"><span>Head Width Est.</span><span>${headWidthCm.toFixed(1)} cm</span></div>
-    <div class="details-row"><span>Head Depth Est.</span><span>${headDepthCm.toFixed(1)} cm</span></div>
-    <div class="details-row"><span>Raw Face Width</span><span>${rawFaceWidthCm.toFixed(1)} cm</span></div>
-    <div class="details-row"><span>Raw Face Depth</span><span>${rawFaceDepthCm.toFixed(1)} cm</span></div>
+    <div style="
+  border:1px solid var(--accent2);
+  background-color:var(--surface);
+  color:var(--text);
+  padding:14px;
+  border-radius:8px;
+  font-family:inherit;
+  font-size:14px;
+  max-width:420px;
+  box-shadow:0 0 0 1px var(--border) inset;
+  margin: auto;
+">
+  Approximations cannot guarantee 100% accuracy, scan atleast 2 times to check accurate size.
+  <span onclick="document.getElementById('infoModal').style.display='flex'" 
+        style="
+          color:var(--accent);
+          text-decoration:underline;
+          cursor:pointer;
+          font-weight:500;
+          margin-left:4px;
+        ">
+        Learn more
+  </span>
+</div>
+
+<!-- Modal -->
+<div id="infoModal" 
+     style="
+       display:none;
+       position:fixed;
+       inset:0;
+       width:100%;
+       height:100%;
+       background-color:rgba(0,0,0,0.75);
+       backdrop-filter:blur(4px);
+       justify-content:center;
+       align-items:center;
+       z-index:9999;
+       padding:16px;
+       padding-bottom: 27px;
+       box-sizing:border-box;
+     ">
+
+  <div style="
+        background:var(--surface);
+        color:var(--text);
+        padding:clamp(16px,4vw,24px);
+        border-radius:12px;
+        width:100%;
+        max-width:420px;
+        max-height:90vh;
+        overflow-y:auto;
+        position:relative;
+        border:1px solid var(--border);
+        box-shadow:0 0 25px rgba(232,255,0,0.08);
+        box-sizing:border-box;
+      ">
+    
+    <span onclick="document.getElementById('infoModal').style.display='none'" 
+          style="
+            position:absolute;
+            top:12px;
+            right:16px;
+            cursor:pointer;
+            font-size:20px;
+            color:var(--muted);
+          ">
+          &times;
+    </span>
+
+    <h3 style="
+        margin-top:0;
+        color:var(--accent);
+        font-weight:600;
+        letter-spacing:0.5px;
+        font-size:clamp(16px,4vw,18px);
+      ">
+      Size Accuracy Information
+    </h3>
+
+    <p style="
+        font-size:clamp(13px,3.5vw,14px);
+        line-height:1.7;
+        color:var(--text);
+      ">
+      The displayed size is an approximation generated from your scan data. 
+      Sizing standards vary between brands, manufacturers, and regions. 
+      A size that fits perfectly in one brand may feel tighter or looser in another.
+
+      <br><br>
+
+      Factors such as material type, stretchability, product design, 
+      manufacturing tolerances, and intended fit (slim, regular, relaxed) 
+      can influence how an item fits.
+
+      <br><br>
+
+      Scan accuracy may also be affected by lighting conditions, 
+      device positioning, posture, and movement during the scan process. 
+      
+      <br><br>
+
+      This tool is intended to assist your decision-making but does not 
+      guarantee a perfect fit for every product or brand.
+    </p>
+
+    <button onclick="document.getElementById('infoModal').style.display='none'" 
+            style="
+              margin-top:14px;
+              width:100%;
+              background:var(--accent);
+              color:#000;
+              border:none;
+              padding:12px;
+              border-radius:6px;
+              cursor:pointer;
+              font-weight:600;
+              font-size:14px;
+            ">
+      Close
+    </button>
+
+  </div>
+</div>
   `;
 
+  // <div class="details-row"><span>Head Width Est.</span><span>${headWidthCm.toFixed(1)} cm</span></div>
+  //   <div class="details-row"><span>Head Depth Est.</span><span>${headDepthCm.toFixed(1)} cm</span></div>
+  //   <div class="details-row"><span>Inner Eye Width</span><span>${rawEyeWidthCm.toFixed(1)} cm</span></div>
+  //   <div class="details-row"><span>Inner Nose-Eye Depth</span><span>${rawEyeDepthCm.toFixed(1)} cm</span></div>
+
   document.getElementById('resultPanel').classList.add('active');
-  speak(`Your estimated helmet size is ${size}, with a circumference of ${circumCm.toFixed(1)} centimeters.`);
+  speak(`Analysis Complete. Your recommended helmet size is ${size}, Please read the disclaimer on screen.`);
 }
 </script>
 </body>
